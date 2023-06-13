@@ -7,8 +7,8 @@ const router = express.Router();
 
 router.get("/users", getUserList);
 router.get("/users/:id", getIdUser);
-router.post("/users", upload.single("fileImage"), createUser);
-router.put("/users/:id", upload.single("fileImage"), editUser);
+router.post("/users", upload.single("image"), createUser);
+router.put("/users/:id", upload.single("image"), editUser);
 router.delete("/users/:id", _deleteUser);
 router.post("/login", login);
 router.get("/search/:name", search);
