@@ -1,8 +1,8 @@
 const connection = require("../connection/mysql");
 const cloudinary = require("../connection/cloudinary");
 const bcrypt = require("bcryptjs");
-const fs = require("fs");
 const jwt = require("jsonwebtoken");
+const e = require("express");
 
 // Error
 const error422 = (massage) => {
@@ -64,7 +64,7 @@ const createUser = async (req, res) => {
   let password = req.body.password;
   let phone = req.body.phone;
   let authorization = req.body.authorization;
-  let fileImage = req.file;
+  let image = req.file;
   let cloudinary_id = null;
   if (name === "") {
     res.json(error422("Enter your name"));
@@ -76,64 +76,44 @@ const createUser = async (req, res) => {
     res.json(error422("Enter your Phone"));
   } else if (authorization === "") {
     res.json(error422("Enter your Authorization"));
-  } else if (!fileImage) {
+  } else if (!image) {
     res.json(error422("Enter your Image"));
   } else {
-    if (fileImage) {
-      const options = {
-        use_filename: true,
-        unique_filename: false,
-        overwrite: true,
-      };
-      fileImage = await cloudinary.uploader.upload(req.file.path, options);
-      cloudinary_id = fileImage?.original_filename;
-      image = fileImage?.secure_url;
-      fileImage = fileImage?.original_filename + "." + fileImage?.format;
+    if (image) {
+      image = await cloudinary.uploader.upload(req.file.path, { folder: "Mysql/users" });
+      cloudinary_id = image?.public_id;
+      image = image?.secure_url;
     }
     password = bcrypt.hashSync(password, Number("salt"));
-    let sql = `INSERT INTO users (name, email ,password, image ,fileImage ,phone ,authorization ,cloudinary_id) 
-        VALUES('${name}', '${email}' ,'${password}','${image}', '${fileImage}' ,'${phone}' , '${authorization}' , '${cloudinary_id}')`;
+    let sql = `INSERT INTO users (name, email ,password, image  ,phone ,authorization ,cloudinary_id) 
+        VALUES('${name}', '${email}' ,'${password}','${image}' ,'${phone}' , '${authorization}' , '${cloudinary_id}')`;
     connection.query(sql, async (err, result) => {
       let data = {
         name: name,
         email: email,
         password: password,
         image: image,
-        fileImage: fileImage,
         phone: phone,
         authorization: authorization,
+        cloudinary_id: cloudinary_id
       };
       if (result) {
         res.json({
           massage: "successfully Create user",
           status: 200,
           result: data,
-          fileImage: fileImage,
         });
       }
-
       if (err) {
-        const options = {
-          use_filename: true,
-          unique_filename: false,
-          overwrite: true,
-        };
-        let deleteImage = await cloudinary.uploader.destroy(fileImage, options);
-        let deleteFile = await fs.unlink(
-          `./images/users/${fileImage}`,
-          (err) => {
-            if (err) {
-              return "error";
-            } else {
-              return "Ok";
-            }
-          }
-        );
+        let imageUrl;
+        let public_id = data.cloudinary_id.replace('Mysql/users/g', '')
+        await cloudinary.uploader.destroy(public_id).then((res) => {
+          imageUrl = res
+        });
         res.json({
           status: 201,
           massage: `You have entered invalid email ${data.email}`,
-          deleteImage: deleteImage,
-          deleteFile: deleteFile,
+          imageUrl: imageUrl
         });
       }
     });
@@ -143,12 +123,12 @@ const createUser = async (req, res) => {
 // Edit User
 
 const editUser = (req, res) => {
-  const id = req.params.id;
+  let id = req.body.id;
   let name = req.body.name;
   let email = req.body.email;
   let phone = req.body.phone;
   let authorization = req.body.authorization;
-  let fileImage = req.file;
+  let image = req.file;
   let cloudinary_id = null;
   let sql = `select * from users where id='${id}'`;
   connection.query(sql, async (err, result) => {
@@ -157,27 +137,17 @@ const editUser = (req, res) => {
       if (user === undefined) {
         res.json({ massage: "no user id", status: 202 });
       } else {
-        if (fileImage) {
-          const options = {
-            use_filename: true,
-            unique_filename: false,
-            overwrite: true,
-          };
-          await cloudinary.uploader.destroy(user.cloudinary_id, options);
-          fs.unlink(`./images/users/${user.fileImage}`, (err) => {
-            if (err) {
-              return "error";
-            } else {
-              return "Ok";
-            }
-          });
-          fileImage = await cloudinary.uploader.upload(req.file.path, options);
-          cloudinary_id = fileImage?.original_filename;
-          image = fileImage?.secure_url;
-          fileImage = fileImage?.original_filename + "." + fileImage?.format;
+        if (image) {
+          let imageUrl;
+          let public_id = user.cloudinary_id.replace('Mysql/users/g', '')
+          await cloudinary.uploader.destroy(public_id).then((res) => {
+            imageUrl = res
+          })
+          image = await cloudinary.uploader.upload(req.file.path, { folder: "Mysql/users" });
+          cloudinary_id = image?.public_id;
+          image = image?.secure_url;
         } else {
           image = user.image;
-          fileImage = user.fileImage;
           cloudinary_id = user.cloudinary_id;
         }
         let sql = `update users set 
@@ -185,7 +155,6 @@ const editUser = (req, res) => {
                  email = '${email}',
                  phone = '${phone}',
                  image = '${image}',
-                 fileImage = '${fileImage}',
                  authorization = '${authorization}',
                  cloudinary_id = '${cloudinary_id}'
                  where id = '${id}'`;
@@ -197,10 +166,10 @@ const editUser = (req, res) => {
             });
           } else {
             let data = {
+              id: id,
               name: name,
               email: email,
               image: image,
-              fileImage: fileImage,
               phone: phone,
               authorization: authorization,
               cloudinary_id: cloudinary_id,
@@ -216,26 +185,16 @@ const editUser = (req, res) => {
         });
       }
     } else {
-      const options = {
-        use_filename: true,
-        unique_filename: false,
-        overwrite: true,
-      };
-      let deleteImage = await cloudinary.uploader.destroy(
-        cloudinary_id,
-        options
-      );
-      await fs.unlink(`./images/users/${fileImage}`, (err) => {
-        if (err) {
-          return "error";
-        } else {
-          return "Ok";
-        }
+
+      let imageUrl;
+      let public_id = data.cloudinary_id.replace('Mysql/users/g', '')
+      await cloudinary.uploader.destroy(public_id).then((res) => {
+        imageUrl = res
       });
       res.json({
         status: 201,
         massage: `You have entered invalid email ${data.email}`,
-        deleteImage: deleteImage,
+        imageUrl: imageUrl,
       });
     }
   });
@@ -254,25 +213,11 @@ const _deleteUser = (req, res) => {
       if (user === undefined) {
         res.json({ massage: "no user id", status: 202 });
       } else {
-        const options = {
-          use_filename: true,
-          unique_filename: false,
-          overwrite: true,
-        };
-        let deleteImage = await cloudinary.uploader.destroy(
-          user.cloudinary_id,
-          options
-        );
-        let deleteFile = await fs.unlink(
-          `./images/users/${user.fileImage}`,
-          (err) => {
-            if (err) {
-              return "error";
-            } else {
-              return "Ok";
-            }
-          }
-        );
+        let imageUrl;
+        let public_id = user.cloudinary_id.replace('Mysql/users/g', '')
+        await cloudinary.uploader.destroy(public_id).then((res) => {
+          imageUrl = res
+        });
         let sql = `delete from users where id='${id}'`;
         connection.query(sql, (err, result) => {
           if (err) {
@@ -281,8 +226,8 @@ const _deleteUser = (req, res) => {
 
           if (result) {
             res.json({
-              deleteImage: deleteImage,
-              deleteFile: deleteFile,
+              id: user.id,
+              imageUrl: imageUrl,
               massage: "successfully Delete",
               status: 200,
             });
@@ -305,6 +250,7 @@ const search = (req, res) => {
         res.json({ status: 200, result: user });
       }
     }
+
   });
 };
 
@@ -321,6 +267,8 @@ const login = (req, res) => {
   } else if (password === "") {
     res.json(error422("Enter your Password"));
   } else {
+
+
     const sql = `select * from users where email ='${email}' `;
     connection.query(sql, async (err, result) => {
       if (result.length === 0) {
